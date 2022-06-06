@@ -100,7 +100,7 @@ def fix_viewport_size(viewport_size, factor=16):
 class MyApp():
     def __init__(self, args):
         with open(args.config) as f:
-            _config = yaml.load(f)
+            _config = yaml.safe_load(f)
             # support two types of configs
             # 1 type - config with scene data
             # 2 type - config with model checkpoints and path to scene data config
@@ -170,17 +170,25 @@ class MyApp():
             texture_ckpt = args.checkpoint
 
         need_neural_render = net_ckpt is not None
-        self.out_buffer_location = 'torch' if need_neural_render else 'opengl'
+
+        # self.out_buffer_location = 'torch' if need_neural_render else 'opengl'
+        self.out_buffer_location = 'numpy' if need_neural_render else 'opengl'
 
         # setup screen image plane
         self.off_render = OffscreenRender(viewport_size=self.viewport_size, out_buffer_location=self.out_buffer_location,
-                                            clear_color=args.clear_color)
+                                          clear_color=args.clear_color)
         if self.out_buffer_location == 'torch':
             screen_tex, self.screen_tex_cuda = create_shared_texture(
                 np.zeros((self.viewport_size[1], self.viewport_size[0], 4), np.float32)
             )
         else:
             screen_tex, self.screen_tex_cuda = self.off_render.color_buf, None
+
+            gl_view = screen_tex.view(gloo.TextureFloat2D)
+            gl_view.activate() # force gloo to create on GPU
+            gl_view.deactivate()
+            screen_tex = gl_view
+        
         self.screen_program = get_screen_program(screen_tex)
 
         self.scene = NNScene()
@@ -359,6 +367,15 @@ class MyApp():
 
         if self.out_buffer_location == 'torch':
             cpy_tensor_to_texture(self.last_frame, self.screen_tex_cuda)
+        elif self.out_buffer_location == 'numpy':
+            if isinstance(self.last_frame, torch.Tensor):
+                rendered = self.last_frame.cpu().numpy()
+            elif isinstance(self.last_frame, np.ndarray):
+                rendered = self.last_frame
+            
+            if rendered.shape[2] == 3:
+                rendered = np.concatenate([rendered, np.ones_like(rendered[..., [0]])], axis=2)
+            self.screen_program['texture'] = rendered
 
         self.window.clear()
 
@@ -433,4 +450,3 @@ if __name__ == '__main__':
 
     my_app = MyApp(args)
     my_app.run()
-

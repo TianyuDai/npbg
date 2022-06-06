@@ -256,7 +256,7 @@ def setup_scene(scene, data, use_mesh=False, use_texture=False):
 
 def load_scene_data(path):
     with open(path, 'r') as f:
-        config = yaml.load(f)
+        config = yaml.safe_load(f)
 
     if 'pointcloud' in config:
         print('loading pointcloud...')
